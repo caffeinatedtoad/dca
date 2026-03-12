@@ -92,17 +92,17 @@ func (opts *EncodeOptions) Validate() error {
 	return nil
 }
 
-// StdEncodeOptions is the standard options for encoding
+// StdEncodeOptions is the standard options for encoding, optimized for maximum speed on Raspberry Pi 5
 var StdEncodeOptions = &EncodeOptions{
 	Volume:           256,
 	Channels:         2,
 	FrameRate:        48000,
-	FrameDuration:    20,
-	Bitrate:          64,
-	Application:      AudioApplicationAudio,
-	CompressionLevel: 10,
+	FrameDuration:    20,                    // 20ms frames for low latency and Discord compatibility
+	Bitrate:          96,                    // Higher bitrate for quality - RPI5 can handle encoding faster at higher bitrates
+	Application:      AudioApplicationAudio, // Audio mode for best quality
+	CompressionLevel: 0,                     // Level 0 = FASTEST encoding, trades file size for speed (10 = slowest, 0 = fastest)
 	PacketLoss:       1,
-	BufferedFrames:   100, // At 20ms frames that's 2s
+	BufferedFrames:   200, // Large buffer to keep pipeline full and prevent stalls (2x original = 4s of audio)
 	VBR:              true,
 	StartTime:        0,
 }
@@ -201,9 +201,12 @@ func (e *EncodeSession) run() {
 
 	// Launch ffmpeg with a variety of different fruits and goodies mixed together
 
-	// Build base arguments
+	// Build base arguments optimized for maximum speed on Raspberry Pi 5
 	args := []string{
 		"-hide_banner",
+		"-fflags", "+nobuffer+flush_packets", // Disable buffering and flush immediately for fastest processing
+		"-flags", "+low_delay", // Low delay mode reduces internal processing overhead
+		"-thread_queue_size", "512", // Large thread queue prevents blocking between decoder/encoder threads
 		"-i", inFile,
 	}
 
@@ -253,9 +256,12 @@ func (e *EncodeSession) run() {
 		"-packet_loss", strconv.Itoa(e.options.PacketLoss),
 	)
 
-	// Threading
+	// Threading - RPI5 has 4 cores (Cortex-A76), use them all for maximum encoding speed
 	if e.options.Threads > 0 {
 		args = append(args, "-threads", strconv.Itoa(e.options.Threads))
+	} else {
+		// Default to 4 threads to utilize all RPI5 CPU cores for parallel processing
+		args = append(args, "-threads", "4")
 	}
 
 	args = append(args, "pipe:1")
