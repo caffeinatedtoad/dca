@@ -199,33 +199,63 @@ func (e *EncodeSession) run() {
 		vbrStr = "off"
 	}
 
-	// Launch ffmpeg with a variety of different fruits and goodies mixed togheter
+	// Launch ffmpeg with a variety of different fruits and goodies mixed together
+
+	// Build base arguments
 	args := []string{
-		"-stats",
+		"-hide_banner",
 		"-i", inFile,
-		"-reconnect", "1",
-		"-reconnect_at_eof", "1",
-		"-reconnect_streamed", "1",
-		"-reconnect_delay_max", "2",
-		"-map", "0:a",
+	}
+
+	// Add reconnect options only for network streams (URLs)
+	if strings.HasPrefix(inFile, "http://") || strings.HasPrefix(inFile, "https://") {
+		args = append(args,
+			"-reconnect", "1",
+			"-reconnect_at_eof", "1",
+			"-reconnect_streamed", "1",
+			"-reconnect_delay_max", "2",
+		)
+	}
+
+	// Add start time if specified
+	if e.options.StartTime > 0 {
+		args = append(args, "-ss", strconv.Itoa(e.options.StartTime))
+	}
+
+	// Select audio stream and build filter chain
+	args = append(args, "-map", "0:a")
+
+	// Build audio filter chain
+	filters := []string{}
+	if e.options.Volume != 256 {
+		// Convert volume from 0-512 range to float multiplier
+		volumeMultiplier := float64(e.options.Volume) / 256.0
+		filters = append(filters, fmt.Sprintf("volume=%.4f", volumeMultiplier))
+	}
+	if e.options.AudioFilter != "" {
+		filters = append(filters, e.options.AudioFilter)
+	}
+	if len(filters) > 0 {
+		args = append(args, "-af", strings.Join(filters, ","))
+	}
+
+	// Opus encoding options
+	args = append(args,
 		"-acodec", "libopus",
 		"-f", "ogg",
 		"-vbr", vbrStr,
 		"-compression_level", strconv.Itoa(e.options.CompressionLevel),
-		"-vol", strconv.Itoa(e.options.Volume),
 		"-ar", strconv.Itoa(e.options.FrameRate),
 		"-ac", strconv.Itoa(e.options.Channels),
-		"-b:a", strconv.Itoa(e.options.Bitrate * 1000),
+		"-b:a", strconv.Itoa(e.options.Bitrate*1000),
 		"-application", string(e.options.Application),
 		"-frame_duration", strconv.Itoa(e.options.FrameDuration),
 		"-packet_loss", strconv.Itoa(e.options.PacketLoss),
-		"-threads", strconv.Itoa(e.options.Threads),
-		"-ss", strconv.Itoa(e.options.StartTime),
-	}
+	)
 
-	if e.options.AudioFilter != "" {
-		// Lit af
-		args = append(args, "-af", e.options.AudioFilter)
+	// Threading
+	if e.options.Threads > 0 {
+		args = append(args, "-threads", strconv.Itoa(e.options.Threads))
 	}
 
 	args = append(args, "pipe:1")
